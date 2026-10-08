@@ -1,0 +1,13 @@
+{
+  "name": "kodeus-mods",
+  "description": "Sander's Claude Code mods",
+  "owner": {
+    "name": "Sander Goossens"
+  },
+  "plugins": [
+    {
+      "name": "ticket-board",
+      "source": "./ticket-board"
+    }
+  ]
+}
