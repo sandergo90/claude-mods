@@ -17,6 +17,7 @@ const composing = atom({ plugin: 'ticket-board', key: 'composing' } as const, nu
 const selected = atom({ plugin: 'ticket-board', key: 'selected' } as const, null)
 const showFinished = atom({ plugin: 'ticket-board', key: 'showFinished' } as const, false)
 const viewing = atom({ plugin: 'ticket-board', key: 'viewing' } as const, null)
+const transcript = atom({ plugin: 'ticket-board', key: 'transcript' } as const, null)
 
 type $ = EngineInterface
 type Outcome = NonNullable<BoardAgent['outcome']>
@@ -144,6 +145,23 @@ async function sendMessage($: $, agent: BoardAgent, text: string) {
   $.ui.toast(`Sent to ${agent.name}`)
 }
 
+/** Reads an agent's conversation into state; a draw only reads that, since this can be slow. */
+async function loadTranscript($: $, agentId: string) {
+  const messages = await $.session.messages({ agentId }).catch((error: unknown) => ({ deny: String(error) }))
+  const steps = 'deny' in messages ? [] : stepsOf(messages)
+  await update($, transcript, () => ({
+    agentId,
+    steps: steps.slice(-80),
+    total: steps.length,
+    deny: 'deny' in messages ? messages.deny : null,
+  }))
+}
+
+async function openTranscript($: $, agentId: string) {
+  await update($, viewing, () => agentId)
+  await loadTranscript($, agentId)
+}
+
 export const register: Register = on => {
   // An Agent call's `isolation` reaches tool.call but not agent.spawn, which it starts.
   const worktreeCalls = new Set<string>()
@@ -166,6 +184,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'board' }, async $ => {
+    await update($, viewing, () => null)
     await refresh($)
     await $.ui.open({ id: PANE, title: 'Tickets' })
     // Opening a pane that is already open changes nothing, so it is asked to draw again.
@@ -191,7 +210,10 @@ export const register: Register = on => {
       }))
     }
 
-    return next(e)
+    const result = await next(e)
+    if (id !== undefined && (await read($, viewing)) === id) void loadTranscript($, id).catch(() => undefined)
+
+    return result
   }).catch(($, e, next) => next(e))
 
   on('agent.spawn', async ($, e, next) => {
@@ -241,6 +263,7 @@ export const register: Register = on => {
         answer: e.answer.slice(0, 400),
       }))
       $.clock.after(SETTLE_MS, () => void refresh($))
+      if ((await read($, viewing)) === agent.id) await loadTranscript($, agent.id)
     }
     // The orchestrator and the agents both resolve tickets by editing their files.
     if (e.agentId === undefined || agent !== undefined) await refresh($)
@@ -252,14 +275,14 @@ export const register: Register = on => {
   on('ui.message', async ($, e, next) => {
     const data = e.data as { open?: unknown } | null
     if (e.requestId === PANE && typeof data?.open === 'string') {
-      const agentId = data.open
-      await update($, viewing, () => agentId)
+      await openTranscript($, data.open)
     }
 
     return next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    try {
     const elements = $.ui.resolve(e)
     const { Box, Button, Text } = elements
     // The table answers `in` for every tag, so the surface decides which ones draw.
@@ -347,7 +370,7 @@ export const register: Register = on => {
         label="Transcript"
         dimColor
         // One write per press: a write redraws the pane, and a second write chained after it is lost.
-        onPress={() => update($, viewing, () => agent.id)}
+        onPress={() => openTranscript($, agent.id)}
       />
     )
     const messageButton = (agent: BoardAgent) =>
@@ -499,9 +522,10 @@ export const register: Register = on => {
     if (viewed !== undefined) {
       const Markdown = 'Markdown' in elements ? elements.Markdown : undefined
       const ticket = feature.tickets.find(t => viewed.ticket !== undefined && sameNumber(t.number, viewed.ticket))
-      const read_ = await $.session.messages({ agentId: viewed.id }).catch((error: unknown) => ({ deny: String(error) }))
-      const steps = 'deny' in read_ ? [] : stepsOf(read_)
-      const shown = steps.slice(-80)
+      const loaded = await read($, transcript)
+      const view = loaded?.agentId === viewed.id ? loaded : null
+      const shown = view?.steps ?? []
+      const hiddenSteps = (view?.total ?? 0) - shown.length
       const tone: Tone =
         viewed.run === 'running' ? 'running' : viewed.run === 'waiting' ? 'waiting' : viewed.run === 'done' ? 'done' : 'failed'
       const state =
@@ -536,17 +560,17 @@ export const register: Register = on => {
               <Text dimColor>{state}</Text>
             </Box>
           </Box>
-          {'deny' in read_ ? (
+          {view === null ? (
+            <Text dimColor>Loading the transcript…</Text>
+          ) : view.deny !== null ? (
             <Text dimColor wrap="wrap">
-              Its transcript can't be read here: {read_.deny}
+              Its transcript can't be read here: {view.deny}
             </Text>
           ) : (
             <Box flexDirection="column" gap={1}>
-              {steps.length > shown.length && (
-                <Text dimColor>{steps.length - shown.length} earlier steps are not shown.</Text>
-              )}
+              {hiddenSteps > 0 && <Text dimColor>{hiddenSteps} earlier steps are not shown.</Text>}
               {shown.map((step, index) => {
-                const key = `step-${steps.length - shown.length + index}`
+                const key = `step-${hiddenSteps + index}`
                 switch (step.kind) {
                   case 'task':
                     return (
@@ -572,7 +596,7 @@ export const register: Register = on => {
                         <Text color={step.isError ? COLOR.failed : COLOR.muted} wrap="truncate-end">
                           {step.line}
                         </Text>
-                        {step.result !== undefined && (
+                        {step.result !== null && (
                           <Text dimColor wrap="truncate-end">
                             {'  '}
                             {step.result}
@@ -582,7 +606,7 @@ export const register: Register = on => {
                     )
                 }
               })}
-              {steps.length === 0 && <Text dimColor>Nothing yet.</Text>}
+              {shown.length === 0 && <Text dimColor>Nothing yet.</Text>}
             </Box>
           )}
         </Box>
@@ -636,5 +660,18 @@ export const register: Register = on => {
         )}
       </Box>
     )
+    } catch (error) {
+      // A failed draw leaves the pane blank and stuck in its view; this one says why and offers a way out.
+      const { Box, Button, Text } = $.ui.resolve(e)
+      return (
+        <Box flexDirection="column" gap={1} paddingX={1}>
+          <Text bold>The board couldn't draw this view</Text>
+          <Text dimColor wrap="wrap">
+            {error instanceof Error ? error.message : String(error)}
+          </Text>
+          <Button key="recover" label="Back to board" onPress={() => update($, viewing, () => null)} />
+        </Box>
+      )
+    }
   })
 }

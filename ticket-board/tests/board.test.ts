@@ -170,6 +170,8 @@ test('an agent with background work waits, then needs a merge, and takes a messa
       toolUses: [{ tool_use_id: 'toolu_t', tool: 'Bash', input: { command: 'bun run test' }, text: '\n12 pass\n0 fail' }],
     },
     { role: 'user', text: 'keep the 120 limit', toolUses: [] },
+    // A finished agent's rows are read back from disk and may lack fields.
+    { role: 'assistant', text: 'Renamed the dossier.' } as unknown as SessionMessage,
   ]
   on('session.messages', () => ({ value: messages }))
   on('ui.status', () => ({ value: undefined }))
@@ -222,6 +224,8 @@ test('an agent with background work waits, then needs a merge, and takes a messa
   const transcript = (await board.findAll({ type: 'Text' })).map(found => found.text)
 
   expect(transcript).toEqual(expect.arrayContaining(['Task', '$ bun run test', '  12 pass', 'Message']))
+  // What the agent said is drawn as Markdown, the finished agent's last row included.
+  expect(await board.find({ text: 'Renamed the dossier.' })).toBeDefined()
   await board.press({ key: 'back' })
   expect(await board.find({ text: 'Needs you' })).toBeDefined()
   await board.unmount()

@@ -35,6 +35,16 @@ export type BoardAgent = {
 /** `dir` is the feature's absolute folder, fixed when its first agent starts. */
 export type Feature = { slug: string; dir: string; tickets: TicketFile[]; seenAt: number }
 
+/** One step of an agent's conversation, as the board's transcript view draws it. */
+export type Step =
+  | { kind: 'task'; text: string }
+  | { kind: 'message'; text: string }
+  | { kind: 'say'; text: string }
+  | { kind: 'tool'; line: string; result: string | null; isError: boolean }
+
+/** The transcript the pane shows, loaded outside a draw: reading a finished agent's can be slow. */
+export type TranscriptView = { agentId: string; steps: Step[]; total: number; deny: string | null }
+
 declare module 'claude-code' {
   interface PluginState {
     'ticket-board': {
@@ -45,6 +55,7 @@ declare module 'claude-code' {
       showFinished: boolean
       /** The agent whose transcript the pane shows in place of the board. */
       viewing: string | null
+      transcript: TranscriptView | null
     }
   }
 }
