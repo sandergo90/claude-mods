@@ -159,6 +159,8 @@ export const register: Register = on => {
       })
     })
     await refresh($)
+    // A reload runs this again: a pane left open by the previous load is never asked to draw otherwise.
+    $.ui.invalidate('ui.render')
 
     return next(e)
   })
@@ -166,6 +168,8 @@ export const register: Register = on => {
   on('command.run', { command: 'board' }, async $ => {
     await refresh($)
     await $.ui.open({ id: PANE, title: 'Tickets' })
+    // Opening a pane that is already open changes nothing, so it is asked to draw again.
+    $.ui.invalidate('ui.render')
 
     return { text: 'Ticket board opened.' }
   })

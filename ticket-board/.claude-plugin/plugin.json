@@ -1,6 +1,6 @@
 {
   "name": "ticket-board",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A live board of an implement-spec run: each ticket's status, blockers and agents, with corrections sent straight to an agent",
   "author": {
     "name": "Sander Goossens"
