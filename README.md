@@ -4,7 +4,7 @@ Mods for Claude Code: plugins of function hooks that draw panes and react to wha
 
 ## ticket-board
 
-A live board of an `/implement-spec` run. Each ticket in `.scratch/<feature>/issues/` is a card in a column (Blocked, Ready, In progress, Needs you, Done). An agent's card shows what it is doing right now. Its Transcript button opens that agent's conversation in the pane, live, and its Message button sends the agent a correction directly. The card of the agent you have open in the main view is marked.
+A live board of an `/implement-spec` run. Each ticket in `.scratch/<feature>/issues/` is a card in a column (Blocked, Ready, In progress, Needs you, Done). An agent's card shows what it is doing right now. Clicking the card opens that agent's conversation in the pane, live, and its Message button sends the agent a correction directly. The card of the agent you have open in the main view is marked.
 
 An agent joins the board when its prompt names a `.scratch/<feature>/` path. Name agents after their ticket (`VI-9-02`, `merge-VI-9-02`) to put them on the right card. Open the board with `/board`; it also opens by itself when the first ticket agent starts.
 

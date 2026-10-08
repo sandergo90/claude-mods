@@ -186,9 +186,15 @@ test('an agent with background work waits, then needs a merge, and takes a messa
     description: 'VI-9-02 rename',
     prompt: 'Implement ticket .scratch/vi-9-edit/issues/02-rename.md',
   })
+  // Cards with an agent draw their content in a click region of their own: read those too.
+  const textsOf = async (ui: { findAll: (query: { type: string; in?: string }) => Promise<{ text: string; key: string | undefined }[]> }) => {
+    const regions = (await ui.findAll({ type: 'Client' })).flatMap(found => (found.key === undefined ? [] : [found.key]))
+    const inside = await Promise.all(regions.map(key => ui.findAll({ type: 'Text', in: key })))
+    return [...(await ui.findAll({ type: 'Text' })), ...inside.flat()].map(found => found.text)
+  }
   const look = async () => {
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    const texts = (await ui.findAll({ type: 'Text' })).map(found => found.text)
+    const texts = await textsOf(ui)
     await ui.unmount()
     return texts
   }
@@ -210,7 +216,9 @@ test('an agent with background work waits, then needs a merge, and takes a messa
   )
 
   const board = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await board.press({ key: 'transcript-agent-02' })
+  await board.resize({ columns: 30, rows: 4, in: 'open-agent-02' })
+  await board.pointer({ type: 'down', x: 3, y: 1, button: 'left', in: 'open-agent-02' })
+  await board.pointer({ type: 'up', x: 3, y: 1, button: 'left', in: 'open-agent-02' })
   const transcript = (await board.findAll({ type: 'Text' })).map(found => found.text)
 
   expect(transcript).toEqual(expect.arrayContaining(['Task', '$ bun run test', '  12 pass', 'Message']))

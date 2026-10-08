@@ -3,6 +3,7 @@ import type { AgentStatus, EngineInterface, Register } from 'claude-code'
 
 import type { BoardAgent, Feature, TicketFile } from '../types'
 import { agentDot, type ColumnId, COLOR, COLUMNS, columnIcon, dependencyOrder, TEXT_GLYPH } from './glyphs'
+import type { CardLine, CardProps, Segment } from './card'
 import { stepsOf } from './transcript'
 import { activityOf, duration, locate, openBlockers, parseTicket, sameNumber, ticketState, type Tone } from './tickets'
 
@@ -243,6 +244,17 @@ export const register: Register = on => {
     return result
   })
 
+  // A click on a card: its region posts the agent whose transcript to open.
+  on('ui.message', async ($, e, next) => {
+    const data = e.data as { open?: unknown } | null
+    if (e.requestId === PANE && typeof data?.open === 'string') {
+      const agentId = data.open
+      await update($, viewing, () => agentId)
+    }
+
+    return next(e)
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const elements = $.ui.resolve(e)
     const { Box, Button, Text } = elements
@@ -339,48 +351,88 @@ export const register: Register = on => {
         <Button key={`message-${agent.id}`} label="Message" dimColor onPress={() => update($, composing, () => agent.id)} />
       )
 
-    /** What the card says about its agent: its state, for how long, and what it is doing right now. */
-    const agentLines = (card: Card) => {
+    const Client = e.surface === 'desktop' || e.surface === 'terminal' ? ('Client' in elements ? elements.Client : undefined) : undefined
+    const seg = (text: string, style: Partial<Omit<Segment, 'text'>> = {}): Segment => ({
+      text,
+      color: style.color ?? null,
+      isDim: style.isDim ?? false,
+      isBold: style.isBold ?? false,
+    })
+    const line = (segments: Segment[], isWrapped = false): CardLine => ({ segments, isWrapped })
+
+    /** What an agent is doing: its state, for how long, and the tool call it just made. */
+    const agentStatus = (agent: BoardAgent, who: string, tone: Tone): CardLine[] => [
+      line([
+        seg(`${TEXT_GLYPH[tone]} ${who}${agent.run === 'waiting' ? 'Waiting' : 'Working'}  `, { color: COLOR[tone] }),
+        seg(`${duration(agent.startedAt, now)}, ${agent.tools} tools${agent.isWorktree ? ', in a worktree' : ''}`, {
+          isDim: true,
+        }),
+      ]),
+      line([seg(agent.run === 'waiting' ? 'Waiting on background work' : (agent.activity ?? 'Starting up'), { isDim: true })]),
+    ]
+
+    /** A card's content as plain lines, the same whether a click region or the pane draws it. */
+    const cardLines = (card: Card): CardLine[] => {
       const agent = card.agent
-      if (agent === undefined || card.tone === 'ready' || card.tone === 'blocked') return []
+      const checks = card.ticket.checksTotal > 0 ? `   ${card.ticket.checksDone}/${card.ticket.checksTotal}` : ''
+      const lines = [
+        line([seg(keyOf(card.ticket.number), { isDim: true }), seg(checks, { isDim: true })]),
+        line([seg(card.ticket.title, { isDim: card.tone === 'done' })], true),
+      ]
+      if (card.tone === 'blocked') {
+        const blockers = openBlockers(card.ticket, feature.tickets).map(keyOf).join(', ')
+        lines.push(line([seg(`Waits for ${blockers}`, { isDim: true })], true))
+      }
+      if (agent === undefined || card.tone === 'ready' || card.tone === 'blocked') return lines
+
       // The card's key already names the implementer; another agent (a merge) is named.
       const who = agent.name === keyOf(card.ticket.number) ? '' : `${agent.name} `
-      const where = agent.isWorktree ? ', in a worktree' : ''
       if (card.tone === 'done') {
-        return [<Text dimColor>Took {duration(agent.startedAt, agent.endedAt ?? now)}</Text>]
-      }
-      if (card.tone === 'attention' || card.tone === 'failed') {
+        lines.push(line([seg(`Took ${duration(agent.startedAt, agent.endedAt ?? now)}`, { isDim: true })]))
+      } else if (card.tone === 'attention' || card.tone === 'failed') {
         const why =
           card.label === 'needs merge'
             ? `${who === '' ? 'Finished' : `${who}finished`}. Merge its work to close the ticket.`
             : card.label === 'merged, still open'
               ? `${who === '' ? 'Merged' : `${who}merged it`}, but the ticket still says open.`
-              : `${who === '' ? '' : who}${card.label === 'stopped' ? 'Stopped' : 'Failed'} before finishing.`
-        return [<Text wrap="wrap">{why}</Text>]
+              : `${who}${card.label === 'stopped' ? 'Stopped' : 'Failed'} before finishing.`
+        lines.push(line([seg(why)], true))
+      } else {
+        lines.push(...agentStatus(agent, who, card.tone))
       }
-      const state = agent.run === 'waiting' ? 'Waiting' : 'Working'
-      return [
-        <Box flexDirection="row" alignItems="center" gap={1}>
-          {dot(card.tone)}
-          <Text color={COLOR[card.tone]} wrap="truncate-end">
-            {who}
-            {state}
-          </Text>
-          <Text dimColor wrap="truncate-end">
-            {duration(agent.startedAt, now)}, {agent.tools} tools{where}
-          </Text>
-        </Box>,
-        <Text dimColor wrap="truncate-end">
-          {agent.run === 'waiting' ? 'Waiting on background work' : (agent.activity ?? 'Starting up')}
-        </Text>,
-      ]
+      if (agent.id === inView) lines.push(line([seg('Open in the main view', { color: COLOR.running })]))
+      return lines
     }
+
+    /** The lines in a region a click opens the agent's transcript from, or drawn plain where none is. */
+    const clickable = (key: string, agent: BoardAgent | undefined, lines: CardLine[]) =>
+      Client !== undefined && agent !== undefined ? (
+        <Client key={key} module="./card.tsx" props={{ agentId: agent.id, lines } satisfies CardProps} width="100%" />
+      ) : (
+        <Box key={key} flexDirection="column">
+          {lines.map((one, index) => (
+            <Text key={`${key}-line-${index}`} wrap={one.isWrapped ? 'wrap' : 'truncate-end'}>
+              {one.segments.map((part, at) => (
+                <Text
+                  key={`${key}-segment-${index}-${at}`}
+                  color={part.color ?? undefined}
+                  dimColor={part.isDim}
+                  bold={part.isBold}
+                >
+                  {part.text}
+                </Text>
+              ))}
+            </Text>
+          ))}
+        </Box>
+      )
 
     const cardView = (card: Card) => {
       const agent = card.agent
       const canMessage =
         agent !== undefined && ['running', 'waiting', 'attention', 'failed'].includes(card.tone)
-      const blockers = openBlockers(card.ticket, feature.tickets)
+      // Without a click region the transcript needs a button of its own.
+      const needsButton = agent !== undefined && Client === undefined
       return (
         <Box
           key={`card-${card.ticket.number}`}
@@ -394,30 +446,14 @@ export const register: Register = on => {
                 ? COLOR[card.tone]
                 : undefined
           }
+          hover={agent !== undefined ? { borderColor: COLOR.running, borderDimColor: false } : undefined}
           paddingX={1}
         >
-          <Box flexDirection="row" justifyContent="space-between" gap={1}>
-            <Text dimColor>{keyOf(card.ticket.number)}</Text>
-            {card.ticket.checksTotal > 0 && (
-              <Text dimColor>
-                {card.ticket.checksDone}/{card.ticket.checksTotal}
-              </Text>
-            )}
-          </Box>
-          <Text wrap="wrap" dimColor={card.tone === 'done'}>
-            {card.ticket.title}
-          </Text>
-          {card.tone === 'blocked' && (
-            <Text dimColor wrap="wrap">
-              Waits for {blockers.map(keyOf).join(', ')}
-            </Text>
-          )}
-          {...agentLines(card)}
-          {agent !== undefined && agent.id === inView && <Text color={COLOR.running}>Open in the main view</Text>}
-          {agent !== undefined && (
+          {clickable(`open-${agent?.id ?? card.ticket.number}`, agent, cardLines(card))}
+          {(canMessage || needsButton) && (
             <Box flexDirection="row" gap={1}>
-              {transcriptButton(agent)}
-              {canMessage && messageButton(agent)}
+              {needsButton && transcriptButton(agent!)}
+              {canMessage && messageButton(agent!)}
             </Box>
           )}
           {canMessage && composer(agent!)}
@@ -577,24 +613,15 @@ export const register: Register = on => {
             <Text bold>Working on the whole spec</Text>
             {helpers.map(agent => {
               const tone: Tone = agent.run === 'running' ? 'running' : agent.run === 'waiting' ? 'waiting' : 'failed'
+              const lines =
+                agent.run === 'running' || agent.run === 'waiting'
+                  ? agentStatus(agent, `${agent.name} `, tone)
+                  : [line([seg(`${TEXT_GLYPH[tone]} ${agent.name} ${agent.run} after ${duration(agent.startedAt, agent.endedAt ?? now)}`, { color: COLOR[tone] })])]
               return (
                 <Box key={`helper-${agent.id}`} flexDirection="column">
-                  <Box flexDirection="row" alignItems="center" gap={1}>
-                    {dot(tone)}
-                    <Text color={COLOR[tone]}>{agent.name}</Text>
-                    <Text dimColor wrap="truncate-end">
-                      {agent.run === 'failed' || agent.run === 'stopped'
-                        ? `${agent.run} after ${duration(agent.startedAt, agent.endedAt ?? now)}`
-                        : `${duration(agent.startedAt, now)}, ${agent.tools} tools`}
-                    </Text>
-                  </Box>
-                  {(agent.run === 'running' || agent.run === 'waiting') && (
-                    <Text dimColor wrap="truncate-end">
-                      {agent.run === 'waiting' ? 'Waiting on background work' : (agent.activity ?? 'Starting up')}
-                    </Text>
-                  )}
+                  {clickable(`open-${agent.id}`, agent, lines)}
                   <Box flexDirection="row" gap={1}>
-                    {transcriptButton(agent)}
+                    {Client === undefined && transcriptButton(agent)}
                     {messageButton(agent)}
                   </Box>
                   {composer(agent)}
