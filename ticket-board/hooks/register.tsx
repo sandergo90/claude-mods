@@ -330,7 +330,8 @@ export const register: Register = on => {
         key={`transcript-${agent.id}`}
         label="Transcript"
         dimColor
-        onPress={() => update($, composing, () => null).then(() => update($, viewing, () => agent.id))}
+        // One write per press: a write redraws the pane, and a second write chained after it is lost.
+        onPress={() => update($, viewing, () => agent.id)}
       />
     )
     const messageButton = (agent: BoardAgent) =>
