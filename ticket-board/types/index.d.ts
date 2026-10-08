@@ -43,6 +43,8 @@ declare module 'claude-code' {
       composing: string | null
       selected: string | null
       showFinished: boolean
+      /** The agent whose transcript the pane shows in place of the board. */
+      viewing: string | null
     }
   }
 }

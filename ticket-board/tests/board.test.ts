@@ -1,4 +1,4 @@
-import type { AgentStatus } from 'claude-code'
+import type { AgentStatus, SessionMessage } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
 
 import { dependencyOrder } from '../hooks/glyphs'
@@ -162,6 +162,16 @@ test('an agent with background work waits, then needs a merge, and takes a messa
   on('agent.list', () => ({ value: [{ id: 'agent-02', description: '', type: 'general-purpose', status }] }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('session.send', ($, e) => (sent.push({ to: e.to, text: e.text }), { isDelivered: true as const }))
+  const messages: SessionMessage[] = [
+    { role: 'user', text: 'Implement ticket 02.', toolUses: [] },
+    {
+      role: 'assistant',
+      text: 'Running the tests first.',
+      toolUses: [{ tool_use_id: 'toolu_t', tool: 'Bash', input: { command: 'bun run test' }, text: '\n12 pass\n0 fail' }],
+    },
+    { role: 'user', text: 'keep the 120 limit', toolUses: [] },
+  ]
+  on('session.messages', () => ({ value: messages }))
   on('ui.status', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
 
@@ -198,6 +208,15 @@ test('an agent with background work waits, then needs a merge, and takes a messa
   expect(await look()).toEqual(
     expect.arrayContaining(['Needs you', 'Finished. Merge its work to close the ticket.']),
   )
+
+  const board = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await board.press({ key: 'transcript-agent-02' })
+  const transcript = (await board.findAll({ type: 'Text' })).map(found => found.text)
+
+  expect(transcript).toEqual(expect.arrayContaining(['Task', '$ bun run test', '  12 pass', 'Message']))
+  await board.press({ key: 'back' })
+  expect(await board.find({ text: 'Needs you' })).toBeDefined()
+  await board.unmount()
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })

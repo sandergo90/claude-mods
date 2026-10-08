@@ -3,6 +3,7 @@ import type { AgentStatus, EngineInterface, Register } from 'claude-code'
 
 import type { BoardAgent, Feature, TicketFile } from '../types'
 import { agentDot, type ColumnId, COLOR, COLUMNS, columnIcon, dependencyOrder, TEXT_GLYPH } from './glyphs'
+import { stepsOf } from './transcript'
 import { activityOf, duration, locate, openBlockers, parseTicket, sameNumber, ticketState, type Tone } from './tickets'
 
 const PANE = 'ticket-board'
@@ -14,6 +15,7 @@ const agents = atom({ plugin: 'ticket-board', key: 'agents' } as const, {})
 const composing = atom({ plugin: 'ticket-board', key: 'composing' } as const, null)
 const selected = atom({ plugin: 'ticket-board', key: 'selected' } as const, null)
 const showFinished = atom({ plugin: 'ticket-board', key: 'showFinished' } as const, false)
+const viewing = atom({ plugin: 'ticket-board', key: 'viewing' } as const, null)
 
 type $ = EngineInterface
 type Outcome = NonNullable<BoardAgent['outcome']>
@@ -253,6 +255,9 @@ export const register: Register = on => {
     const feature = await current($)
     const composingFor = await read($, composing)
     const isShowingAllDone = await read($, showFinished)
+    const viewingId = await read($, viewing)
+    // The agent whose transcript the person opened from the tasks list; its card is marked.
+    const inView = e.props.view.agentId
 
     if (feature === undefined) {
       return (
@@ -320,6 +325,14 @@ export const register: Register = on => {
           <Button key={`cancel-${agent.id}`} label="Cancel" dimColor onPress={() => update($, composing, () => null)} />
         </Box>
       )
+    const transcriptButton = (agent: BoardAgent) => (
+      <Button
+        key={`transcript-${agent.id}`}
+        label="Transcript"
+        dimColor
+        onPress={() => update($, composing, () => null).then(() => update($, viewing, () => agent.id))}
+      />
+    )
     const messageButton = (agent: BoardAgent) =>
       composingFor !== agent.id && (
         <Button key={`message-${agent.id}`} label="Message" dimColor onPress={() => update($, composing, () => agent.id)} />
@@ -373,7 +386,13 @@ export const register: Register = on => {
           flexDirection="column"
           borderStyle="round"
           borderDimColor
-          borderColor={card.tone === 'attention' || card.tone === 'failed' ? COLOR[card.tone] : undefined}
+          borderColor={
+            agent !== undefined && agent.id === inView
+              ? COLOR.running
+              : card.tone === 'attention' || card.tone === 'failed'
+                ? COLOR[card.tone]
+                : undefined
+          }
           paddingX={1}
         >
           <Box flexDirection="row" justifyContent="space-between" gap={1}>
@@ -393,7 +412,13 @@ export const register: Register = on => {
             </Text>
           )}
           {...agentLines(card)}
-          {canMessage && messageButton(agent!)}
+          {agent !== undefined && agent.id === inView && <Text color={COLOR.running}>Open in the main view</Text>}
+          {agent !== undefined && (
+            <Box flexDirection="row" gap={1}>
+              {transcriptButton(agent)}
+              {canMessage && messageButton(agent)}
+            </Box>
+          )}
           {canMessage && composer(agent!)}
         </Box>
       )
@@ -424,6 +449,100 @@ export const register: Register = on => {
               dimColor
               onPress={() => update($, showFinished, shown => !shown)}
             />
+          )}
+        </Box>
+      )
+    }
+
+    const viewed = own.find(agent => agent.id === viewingId)
+    if (viewed !== undefined) {
+      const Markdown = 'Markdown' in elements ? elements.Markdown : undefined
+      const ticket = feature.tickets.find(t => viewed.ticket !== undefined && sameNumber(t.number, viewed.ticket))
+      const read_ = await $.session.messages({ agentId: viewed.id }).catch((error: unknown) => ({ deny: String(error) }))
+      const steps = 'deny' in read_ ? [] : stepsOf(read_)
+      const shown = steps.slice(-80)
+      const tone: Tone =
+        viewed.run === 'running' ? 'running' : viewed.run === 'waiting' ? 'waiting' : viewed.run === 'done' ? 'done' : 'failed'
+      const state =
+        viewed.run === 'running' || viewed.run === 'waiting'
+          ? `${viewed.run === 'waiting' ? 'Waiting' : 'Working'}, ${duration(viewed.startedAt, now)}, ${viewed.tools} tools`
+          : `${viewed.run === 'done' ? 'Finished' : viewed.run === 'failed' ? 'Failed' : 'Stopped'} after ${duration(viewed.startedAt, viewed.endedAt ?? now)}, ${viewed.tools} tools`
+      const prose = (key: string, text: string, isDim = false) =>
+        Markdown !== undefined ? (
+          <Markdown key={key} text={text} dimColor={isDim} />
+        ) : (
+          <Text key={key} wrap="wrap" dimColor={isDim}>
+            {text}
+          </Text>
+        )
+
+      return (
+        <Box flexDirection="column" gap={1} paddingX={1}>
+          <Box flexDirection="row" alignItems="center" gap={2}>
+            <Button key="back" label="Back to board" dimColor onPress={() => update($, viewing, () => null)} />
+            {(viewed.run === 'running' || viewed.run === 'waiting' || viewed.run === 'failed' || viewed.run === 'stopped') &&
+              messageButton(viewed)}
+          </Box>
+          {composer(viewed)}
+          <Box flexDirection="column">
+            <Text dimColor>{ticket === undefined ? 'Whole spec' : keyOf(ticket.number)}</Text>
+            <Text bold wrap="wrap">
+              {ticket?.title ?? viewed.name}
+            </Text>
+            <Box flexDirection="row" alignItems="center" gap={1}>
+              {dot(tone)}
+              <Text color={COLOR[tone]}>{viewed.name}</Text>
+              <Text dimColor>{state}</Text>
+            </Box>
+          </Box>
+          {'deny' in read_ ? (
+            <Text dimColor wrap="wrap">
+              Its transcript can't be read here: {read_.deny}
+            </Text>
+          ) : (
+            <Box flexDirection="column" gap={1}>
+              {steps.length > shown.length && (
+                <Text dimColor>{steps.length - shown.length} earlier steps are not shown.</Text>
+              )}
+              {shown.map((step, index) => {
+                const key = `step-${steps.length - shown.length + index}`
+                switch (step.kind) {
+                  case 'task':
+                    return (
+                      <Box key={key} flexDirection="column">
+                        <Text bold>Task</Text>
+                        {prose(`${key}-text`, step.text.length > 1200 ? `${step.text.slice(0, 1200)}…` : step.text, true)}
+                      </Box>
+                    )
+                  case 'message':
+                    return (
+                      <Box key={key} flexDirection="column">
+                        <Text bold color={COLOR.attention}>
+                          Message
+                        </Text>
+                        {prose(`${key}-text`, step.text)}
+                      </Box>
+                    )
+                  case 'say':
+                    return prose(key, step.text)
+                  case 'tool':
+                    return (
+                      <Box key={key} flexDirection="column">
+                        <Text color={step.isError ? COLOR.failed : COLOR.muted} wrap="truncate-end">
+                          {step.line}
+                        </Text>
+                        {step.result !== undefined && (
+                          <Text dimColor wrap="truncate-end">
+                            {'  '}
+                            {step.result}
+                          </Text>
+                        )}
+                      </Box>
+                    )
+                }
+              })}
+              {steps.length === 0 && <Text dimColor>Nothing yet.</Text>}
+            </Box>
           )}
         </Box>
       )
@@ -473,7 +592,10 @@ export const register: Register = on => {
                       {agent.run === 'waiting' ? 'Waiting on background work' : (agent.activity ?? 'Starting up')}
                     </Text>
                   )}
-                  {messageButton(agent)}
+                  <Box flexDirection="row" gap={1}>
+                    {transcriptButton(agent)}
+                    {messageButton(agent)}
+                  </Box>
                   {composer(agent)}
                 </Box>
               )
