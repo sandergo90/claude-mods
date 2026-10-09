@@ -1,0 +1,9 @@
+{
+  "name": "suggestion-chip",
+  "version": "0.1.0",
+  "description": "Claude's suggested next prompt in a bar above the prompt box, sent with one click",
+  "author": {
+    "name": "Sander Goossens"
+  },
+  "types": "./types/index.d.ts"
+}

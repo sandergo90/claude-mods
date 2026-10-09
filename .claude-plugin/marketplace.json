@@ -8,6 +8,10 @@
     {
       "name": "ticket-board",
       "source": "./ticket-board"
+    },
+    {
+      "name": "suggestion-chip",
+      "source": "./suggestion-chip"
     }
   ]
 }
