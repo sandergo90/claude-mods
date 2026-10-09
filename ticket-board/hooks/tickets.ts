@@ -58,7 +58,8 @@ export function sameNumber(a: string, b: string): boolean {
  * notes; otherwise the one ticket file its prompt names.
  */
 export function locate(prompt: string, name?: string): { feature?: string; ticket?: string; role: AgentRole } {
-  const feature = /\.scratch\/([\w.-]+)\/(?:issues\/|spec\.md|map\.md)/.exec(prompt)?.[1]
+  // Only a spec or its tickets mark an implement-spec run: a wayfinder map's agents stay off the board.
+  const feature = /\.scratch\/([\w.-]+)\/(?:issues\/|spec\.md)/.exec(prompt)?.[1]
   const role: AgentRole = name !== undefined && /^merge/i.test(name) ? 'merge' : 'implement'
   if (feature === undefined) return { role: 'helper' }
 

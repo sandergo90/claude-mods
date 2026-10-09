@@ -68,6 +68,9 @@ describe('matching agents to tickets', () => {
 
     expect(locate(review, 'review-spec')).toEqual({ feature: 'vi-9-edit-dossier-text', role: 'helper' })
     expect(locate('Research rich-text editors.', 'research').feature).toBeUndefined()
+    // A wayfinder run's agents point at its map and decisions, not at a spec's tickets.
+    const research = 'Resolve decision `.scratch/dossiercoach-architecture/decisions/03-hosting.md` of the map `.scratch/dossiercoach-architecture/map.md`.'
+    expect(locate(research, 'research-hosting').feature).toBeUndefined()
   })
 })
 
