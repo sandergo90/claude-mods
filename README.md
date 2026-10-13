@@ -12,6 +12,8 @@ An agent joins the board when its prompt names a `.scratch/<feature>/` path. Nam
 
 Answer a `/grilling` round by clicking instead of typing. In the newest unanswered round, each `➡️` recommendation becomes a button where it stands: clicking it writes `Q2: yes` into the prompt box, and the Change button beside it writes `Q2: ` for an answer of your own. Press Enter to send what the prompt box holds, or click Yes to all to send `yes to all` at once. A round of one question sends `yes` from its recommendation. Once any prompt is sent, the round reads as plain text again.
 
+![A grilling round with each recommendation as a button, a Change button beside it, and Yes to all below](grill-answers/screenshot.png)
+
 ## Install
 
 In a Claude Code terminal session:
