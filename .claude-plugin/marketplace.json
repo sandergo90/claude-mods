@@ -8,6 +8,10 @@
     {
       "name": "ticket-board",
       "source": "./ticket-board"
+    },
+    {
+      "name": "grill-answers",
+      "source": "./grill-answers"
     }
   ]
 }

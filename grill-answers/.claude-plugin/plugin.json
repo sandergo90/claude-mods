@@ -1,0 +1,9 @@
+{
+  "name": "grill-answers",
+  "version": "0.1.0",
+  "description": "Answer a grilling round from the transcript: Yes to all, or change one question's answer",
+  "author": {
+    "name": "Sander Goossens"
+  },
+  "types": "./types/index.d.ts"
+}
