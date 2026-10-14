@@ -48,8 +48,9 @@ describe('answering a grill round from inside the text', () => {
       const ui = await $.ui.mount({ ...block(ROUND), surface })
 
       expect((await ui.find({ key: 'accept-1' }))?.props.label).toBe('➡️ Yes: keep "Yes to all", so the label says what you\'re sending.')
-      expect(await ui.find({ type: 'Markdown', text: /Should each button say `Change Q2`/ })).toBeDefined()
-      expect(await ui.find({ type: 'Markdown', text: /➡️/ })).toBeUndefined()
+      // The text around the buttons is the engine's own drawing, the recommendation lines cut out of it.
+      expect(await ui.find({ type: 'Text', text: /Should each button say `Change Q2`/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /➡️/ })).toBeUndefined()
 
       await ui.press({ key: 'accept-2' })
       await ui.press({ key: 'change-1' })

@@ -77,8 +77,19 @@ export const register: Register = on => {
       return next(e)
     }
 
-    const { Box, Button, Markdown } = $.ui.resolve(e)
+    const { Box, Button } = $.ui.resolve(e)
     const isSingle = current.questions.length === 1
+
+    // The text between the buttons is drawn by the engine itself, piece by piece, so it keeps the transcript's own look.
+    const parts = pieces(e.props.text)
+    const drawn: (Awaited<ReturnType<typeof next>> | null)[] = []
+    for (const [index, piece] of parts.entries()) {
+      drawn.push(
+        piece.kind === 'text'
+          ? await next({ ...e, props: { ...e.props, text: piece.markdown, isFirstOfReply: e.props.isFirstOfReply && index === 0 } })
+          : null,
+      )
+    }
 
     const send = async (text: string) => {
       // The plugin's own submit skips its own prompt.submit hook, so the click retires the buttons itself.
@@ -108,9 +119,9 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" gap={1}>
-        {pieces(e.props.text).map((piece, index) =>
+        {parts.map((piece, index) =>
           piece.kind === 'text' ? (
-            <Markdown key={`text-${index}`} text={piece.markdown} />
+            <Box key={`text-${index}`}>{drawn[index]}</Box>
           ) : (
             <Box key={`row-${piece.question}`} gap={1} alignItems="center" flexWrap="wrap">
               <Button
