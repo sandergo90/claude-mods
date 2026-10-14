@@ -82,11 +82,14 @@ export const register: Register = on => {
 
           return (
             <Box key={`row-${question.number}`} width="100%" alignItems="center" justifyContent="space-between" gap={2}>
-              <Box flexShrink={1} gap={1}>
+              <Box flexGrow={1} flexShrink={1} minWidth={0} gap={1} alignItems="flex-start">
                 <Box width={5} flexShrink={0}>
                   {isAccepted ? <Text color="success">✓ Q{question.number}</Text> : <Text dimColor>Q{question.number}</Text>}
                 </Box>
-                <Text wrap="truncate-end">{question.title}</Text>
+                {/* A long title wraps onto more lines below its number; the buttons keep their place on the right. */}
+                <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                  <Text wrap="wrap">{question.title}</Text>
+                </Box>
               </Box>
               <Box gap={1} flexShrink={0}>
                 <Button
