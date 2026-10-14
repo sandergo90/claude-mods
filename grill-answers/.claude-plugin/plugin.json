@@ -1,7 +1,7 @@
 {
   "name": "grill-answers",
-  "version": "0.1.1",
-  "description": "Answer a grilling round from the transcript: Yes to all, or change one question's answer",
+  "version": "0.2.0",
+  "description": "Answer a grilling round from a panel above the prompt: accept or change each question, or Yes to all",
   "author": {
     "name": "Sander Goossens"
   },

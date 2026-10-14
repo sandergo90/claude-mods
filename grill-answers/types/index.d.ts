@@ -3,10 +3,8 @@ export type GrillQuestion = { number: string; title: string }
 
 /** The round the main loop's last answer asked, until any prompt answers it. */
 export type GrillRound = {
-  /** The answer, whitespace collapsed: the reply block the round is drawn in is its last. */
-  answer: string
   questions: GrillQuestion[]
-  /** The questions whose recommendation was clicked into the prompt box, by number. */
+  /** The questions whose recommendation was accepted into the prompt box, by number. */
   accepted: string[]
 }
 

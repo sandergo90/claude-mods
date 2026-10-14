@@ -6,50 +6,18 @@ import type { GrillQuestion, GrillRound } from '../types'
 const round = atom({ plugin: 'grill-answers', key: 'round' } as const, null as GrillRound | null)
 
 // The grilling skill's round: `❓ **Q1** - **<title>**: <question>`, then `➡️ <recommended answer>`.
-const QUESTION = /❓\s*\*\*Q(\d+)\*\*\s*-\s*\*\*(.+?)\*\*/
-const RECOMMENDATION = /^\s*➡️\s*(.+)$/
+const QUESTION = /❓\s*\*\*Q(\d+)\*\*\s*-\s*\*\*(.+?)\*\*/g
 
-const collapse = (text: string) => text.replace(/\s+/g, ' ').trim()
-
-// A button label is plain text: the recommendation without its markdown emphasis and code ticks.
-const plain = (markdown: string) => markdown.replace(/\*\*|__|`/g, '').trim()
+// A title is shown as plain text: without its markdown emphasis and code ticks.
+const plain = (markdown: string) => markdown.replace(/\*\*|__|`/g, '').replace(/:$/, '').trim()
 
 const parseRound = (answer: string): GrillRound | null => {
-  const questions: GrillQuestion[] = [...answer.matchAll(new RegExp(QUESTION, 'g'))].map(([, number = '', title = '']) => ({
+  const questions: GrillQuestion[] = [...answer.matchAll(QUESTION)].map(([, number = '', title = '']) => ({
     number,
-    title: title.replace(/:$/, '').trim(),
+    title: plain(title),
   }))
 
-  return questions.length > 0 && answer.includes('➡️') ? { answer: collapse(answer), questions, accepted: [] } : null
-}
-
-/** The block's text cut where its recommendations stand: markdown between, each `➡️` line with its question. */
-type Piece = { kind: 'text'; markdown: string } | { kind: 'recommendation'; question: string; text: string }
-
-const pieces = (block: string): Piece[] => {
-  const out: Piece[] = []
-  let markdown: string[] = []
-  let question = ''
-  const flush = () => {
-    if (markdown.join('\n').trim() !== '') {
-      out.push({ kind: 'text', markdown: markdown.join('\n') })
-    }
-    markdown = []
-  }
-
-  for (const line of block.split('\n')) {
-    question = line.match(QUESTION)?.[1] ?? question
-    const recommendation = line.match(RECOMMENDATION)?.[1]
-    if (recommendation === undefined || question === '') {
-      markdown.push(line)
-      continue
-    }
-    flush()
-    out.push({ kind: 'recommendation', question, text: plain(recommendation) })
-  }
-  flush()
-
-  return out
+  return questions.length > 0 && answer.includes('➡️') ? { questions, accepted: [] } : null
 }
 
 export const register: Register = on => {
@@ -68,31 +36,19 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+  // The answer panel: the reply stays as the app draws it, the answers are given here, beside the prompt box.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const current = await read($, round)
-    const block = collapse(e.props.text)
-    const isRoundEnd = current !== null && block !== '' && !e.props.isSummary && current.answer.endsWith(block)
 
-    if (!isRoundEnd) {
+    if (current === null || e.props.hasSurvey || e.props.isWorking) {
       return next(e)
     }
 
-    const { Box, Button } = $.ui.resolve(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
     const isSingle = current.questions.length === 1
 
-    // The text between the buttons is drawn by the engine itself, piece by piece, so it keeps the transcript's own look.
-    const parts = pieces(e.props.text)
-    const drawn: (Awaited<ReturnType<typeof next>> | null)[] = []
-    for (const [index, piece] of parts.entries()) {
-      drawn.push(
-        piece.kind === 'text'
-          ? await next({ ...e, props: { ...e.props, text: piece.markdown, isFirstOfReply: e.props.isFirstOfReply && index === 0 } })
-          : null,
-      )
-    }
-
     const send = async (text: string) => {
-      // The plugin's own submit skips its own prompt.submit hook, so the click retires the buttons itself.
+      // The plugin's own submit skips its own prompt.submit hook, so the click retires the panel itself.
       await update($, round, () => null)
       await $.prompt.submit({ text, asUser: true })
     }
@@ -117,23 +73,41 @@ export const register: Register = on => {
       await answer(question, '')
     }
 
+    // One quiet row per question: its number as a column, its title to read, its two answers on the right.
+    // The footer carries the only filled button, beside how far the round is answered.
     return (
-      <Box flexDirection="column" gap={1}>
-        {parts.map((piece, index) =>
-          piece.kind === 'text' ? (
-            <Box key={`text-${index}`}>{drawn[index]}</Box>
-          ) : (
-            <Box key={`row-${piece.question}`} gap={1} alignItems="center" flexWrap="wrap">
-              <Button
-                key={`accept-${piece.question}`}
-                label={`${current.accepted.includes(piece.question) ? '✓' : '➡️'} ${piece.text}`}
-                onPress={() => accept(piece.question)}
-              />
-              <Button key={`change-${piece.question}`} label="Change" dimColor onPress={() => change(piece.question)} />
+      <Box flexDirection="column" width="100%" paddingX={1} rowGap={1}>
+        {current.questions.map(question => {
+          const isAccepted = current.accepted.includes(question.number)
+
+          return (
+            <Box key={`row-${question.number}`} width="100%" alignItems="center" justifyContent="space-between" gap={2}>
+              <Box flexShrink={1} gap={1}>
+                <Box width={5} flexShrink={0}>
+                  {isAccepted ? <Text color="success">✓ Q{question.number}</Text> : <Text dimColor>Q{question.number}</Text>}
+                </Box>
+                <Text wrap="truncate-end">{question.title}</Text>
+              </Box>
+              <Box gap={1} flexShrink={0}>
+                <Button
+                  key={`accept-${question.number}`}
+                  label={isSingle ? 'Yes' : isAccepted ? 'Accepted' : 'Accept'}
+                  dimColor={isAccepted}
+                  onPress={() => accept(question.number)}
+                />
+                <Button key={`change-${question.number}`} label="Change" dimColor onPress={() => change(question.number)} />
+              </Box>
             </Box>
-          ),
+          )
+        })}
+        {isSingle ? null : (
+          <Box width="100%" alignItems="center" justifyContent="space-between" marginTop={1}>
+            <Text dimColor>
+              {current.accepted.length} of {current.questions.length} accepted
+            </Text>
+            <Button key="accept-all" variant="primary" label="Yes to all" onPress={() => send('yes to all')} />
+          </Box>
         )}
-        {isSingle ? null : <Button key="accept-all" variant="primary" label="Yes to all" onPress={() => send('yes to all')} />}
       </Box>
     )
   })

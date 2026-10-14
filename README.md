@@ -10,9 +10,7 @@ An agent joins the board when its prompt names a `.scratch/<feature>/` path. Nam
 
 ## grill-answers
 
-Answer a `/grilling` round by clicking instead of typing. In the newest unanswered round, each `➡️` recommendation becomes a button where it stands: clicking it writes `Q2: yes` into the prompt box, and the Change button beside it writes `Q2: ` for an answer of your own. Press Enter to send what the prompt box holds, or click Yes to all to send `yes to all` at once. A round of one question sends `yes` from its recommendation. Once any prompt is sent, the round reads as plain text again.
-
-![A grilling round with each recommendation as a button, a Change button beside it, and Yes to all below](grill-answers/screenshot.png)
+Answer a `/grilling` round from a panel above the prompt box, while Claude's reply stays as it is. Each question is a row: Accept writes `Q2: yes` into the prompt box and Change writes `Q2: ` for an answer of your own, sent when you press Enter. Yes to all sends `yes to all` at once, and a round of one question sends `yes` from its Yes button. The panel goes away once any prompt is sent.
 
 ## Install
 
